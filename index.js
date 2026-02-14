@@ -1,13 +1,10 @@
-require("dotenv").config();
 const fs = require("fs");
 const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
-});
-
-// ===== Config =====
+// ===== Configuração =====
+const TOKEN = process.env.TOKEN_BOT; // <- coloque TOKEN_BOT como Environment Variable no Railway
 const PREFIX = "!";
+
 let ranking = {};
 let coins = {};
 
@@ -22,7 +19,6 @@ function salvarDados() {
   fs.writeFileSync("coins.json", JSON.stringify(coins, null, 2));
 }
 
-// Função para XP e Coins automáticas
 function registrarVitoria(userId) {
   if (!ranking[userId]) ranking[userId] = { vitorias: 0, derrotas: 0, streak: 0, xp: 0 };
   if (!coins[userId]) coins[userId] = 0;
@@ -30,11 +26,9 @@ function registrarVitoria(userId) {
   ranking[userId].vitorias += 1;
   ranking[userId].streak += 1;
 
-  // XP aumenta com streak: 10 base + 2 por streak
   const xpGanho = 10 + ranking[userId].streak * 2;
   ranking[userId].xp += xpGanho;
 
-  // Coins ganhas: 5 base + 1 por streak
   const coinsGanhas = 5 + ranking[userId].streak * 1;
   coins[userId] += coinsGanhas;
 
@@ -50,6 +44,11 @@ function registrarDerrota(userId) {
   ranking[userId].streak = 0;
   salvarDados();
 }
+
+// ===== Cliente =====
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+});
 
 // ===== Ready =====
 client.once("ready", () => {
@@ -91,7 +90,6 @@ client.on("messageCreate", async message => {
     const guild = message.guild;
     if (!guild) return;
 
-    // Ordena por XP, depois vitórias
     const top10 = Object.entries(ranking)
       .sort(([, a], [, b]) => b.xp - a.xp || b.vitorias - a.vitorias)
       .slice(0, 10);
@@ -138,4 +136,4 @@ client.on("messageCreate", async message => {
   }
 });
 
-client.login(process.env.TOKEN);
+client.login(TOKEN);
