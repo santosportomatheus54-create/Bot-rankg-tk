@@ -1,0 +1,14 @@
+{
+  "name": "ranking-bot",
+  "version": "1.0.0",
+  "description": "Bot de Discord com ranking, vitórias, derrotas e XP",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.3.1",
+    "fs": "^0.0.1-security"
+  }
+}
