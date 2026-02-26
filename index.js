@@ -1,139 +1,135 @@
-const fs = require("fs");
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  PermissionsBitField,
+  ChannelType
+} = require("discord.js");
 
-// ===== Configuração =====
-const TOKEN = process.env.TOKEN_BOT; // <- coloque TOKEN_BOT como Environment Variable no Railway
-const PREFIX = "!";
-
-let ranking = {};
-let coins = {};
-
-// ===== Funções =====
-function carregarDados() {
-  if (fs.existsSync("ranking.json")) ranking = JSON.parse(fs.readFileSync("ranking.json"));
-  if (fs.existsSync("coins.json")) coins = JSON.parse(fs.readFileSync("coins.json"));
-}
-
-function salvarDados() {
-  fs.writeFileSync("ranking.json", JSON.stringify(ranking, null, 2));
-  fs.writeFileSync("coins.json", JSON.stringify(coins, null, 2));
-}
-
-function registrarVitoria(userId) {
-  if (!ranking[userId]) ranking[userId] = { vitorias: 0, derrotas: 0, streak: 0, xp: 0 };
-  if (!coins[userId]) coins[userId] = 0;
-
-  ranking[userId].vitorias += 1;
-  ranking[userId].streak += 1;
-
-  const xpGanho = 10 + ranking[userId].streak * 2;
-  ranking[userId].xp += xpGanho;
-
-  const coinsGanhas = 5 + ranking[userId].streak * 1;
-  coins[userId] += coinsGanhas;
-
-  salvarDados();
-  return { xpGanho, coinsGanhas };
-}
-
-function registrarDerrota(userId) {
-  if (!ranking[userId]) ranking[userId] = { vitorias: 0, derrotas: 0, streak: 0, xp: 0 };
-  if (!coins[userId]) coins[userId] = 0;
-
-  ranking[userId].derrotas += 1;
-  ranking[userId].streak = 0;
-  salvarDados();
-}
-
-// ===== Cliente =====
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-// ===== Ready =====
-client.once("ready", () => {
-  console.log(`${client.user.tag} está online!`);
-  carregarDados();
-});
+// ===== FILAS =====
+let filas = {
+  mobile: [],
+  emulador: []
+};
 
-// ===== Mensagens =====
-client.on("messageCreate", async message => {
-  if (message.author.bot) return;
-  if (!message.content.startsWith(PREFIX)) return;
+// ===== EMBED =====
+function painel(tipo, guild) {
+  const lista = filas[tipo]
+    .map((id, i) => `\`${i + 1}\` • <@${id}>`)
+    .join("\n") || "✨ Ninguém na fila";
 
-  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-  const comando = args.shift().toLowerCase();
+  return new EmbedBuilder()
+    .setTitle(`🔥 TESTE • ${tipo.toUpperCase()}`)
+    .setDescription(lista)
+    .setColor("#7b2cff")
+    .setThumbnail(guild.iconURL())
+    .addFields({
+      name: "👥 Total",
+      value: `${filas[tipo].length}`,
+      inline: true
+    });
+}
 
-  // ==== !p - ranking pessoal ====
-  if (comando === "p") {
-    const userId = message.author.id;
-    if (!ranking[userId]) ranking[userId] = { vitorias: 0, derrotas: 0, streak: 0, xp: 0 };
-    if (!coins[userId]) coins[userId] = 0;
-    const r = ranking[userId];
+// ===== BOTÕES =====
+function botoes(tipo) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`entrar_${tipo}`)
+      .setLabel("Entrar")
+      .setStyle(ButtonStyle.Success),
 
-    const embed = new EmbedBuilder()
-      .setTitle(`${message.author.username} - Seu Ranking`)
-      .setColor("#00FF00")
-      .setDescription(
-        `🏆 Vitórias: ${r.vitorias}\n` +
-        `💀 Derrotas: ${r.derrotas}\n` +
-        `🔥 Vitórias seguidas: ${r.streak}\n` +
-        `⭐ XP: ${r.xp}\n` +
-        `💰 Coins: ${coins[userId]}`
-      );
+    new ButtonBuilder()
+      .setCustomId(`sair_${tipo}`)
+      .setLabel("Sair")
+      .setStyle(ButtonStyle.Danger)
+  );
+}
 
-    message.channel.send({ embeds: [embed] });
-  }
+// ===== LOG =====
+async function log(guild, texto) {
+  const canal = guild.channels.cache.get(process.env.LOG_CHANNEL);
+  if (!canal) return;
 
-  // ==== !rank - Top 10 do servidor ====
-  if (comando === "rank") {
-    const guild = message.guild;
-    if (!guild) return;
+  const embed = new EmbedBuilder()
+    .setDescription(texto)
+    .setColor("#ff0055")
+    .setTimestamp();
 
-    const top10 = Object.entries(ranking)
-      .sort(([, a], [, b]) => b.xp - a.xp || b.vitorias - a.vitorias)
-      .slice(0, 10);
+  canal.send({ embeds: [embed] });
+}
 
-    if (top10.length === 0) return message.channel.send("Nenhum jogador registrado ainda!");
+// ===== SLASH =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isChatInputCommand()) return;
 
-    let description = "";
-    for (let i = 0; i < top10.length; i++) {
-      const [userId, stats] = top10[i];
-      const user = await guild.members.fetch(userId).catch(() => null);
-      const name = user ? user.user.username : `Desconhecido`;
-      const userCoins = coins[userId] || 0;
-      description += `**#${i + 1} ${name}** - 🏆 ${stats.vitorias} | 💀 ${stats.derrotas} | 🔥 ${stats.streak} | ⭐ XP: ${stats.xp} | 💰 ${userCoins}\n`;
-    }
+  if (interaction.commandName === "fila") {
+    const tipo = interaction.options.getString("tipo");
 
-    const embed = new EmbedBuilder()
-      .setTitle(`🏅 Top 10 do Servidor`)
-      .setColor("#FFD700")
-      .setDescription(description);
-
-    message.channel.send({ embeds: [embed] });
-  }
-
-  // ==== !vitoria ====
-  if (comando === "vitoria") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return message.reply("❌ Apenas administradores podem usar este comando!");
-    }
-    if (!message.mentions.users.size) return message.reply("Marque um usuário para adicionar vitória!");
-    const alvo = message.mentions.users.first();
-    const { xpGanho, coinsGanhas } = registrarVitoria(alvo.id);
-    message.channel.send(`✅ Vitória adicionada a ${alvo.username} (+${xpGanho} XP, +${coinsGanhas} coins)`);
-  }
-
-  // ==== !derrota ====
-  if (comando === "derrota") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return message.reply("❌ Apenas administradores podem usar este comando!");
-    }
-    if (!message.mentions.users.size) return message.reply("Marque um usuário para adicionar derrota!");
-    const alvo = message.mentions.users.first();
-    registrarDerrota(alvo.id);
-    message.channel.send(`❌ Derrota adicionada a ${alvo.username}`);
+    await interaction.reply({
+      embeds: [painel(tipo, interaction.guild)],
+      components: [botoes(tipo)]
+    });
   }
 });
 
-client.login(TOKEN);
+// ===== BOTÕES =====
+client.on("interactionCreate", async interaction => {
+  if (!interaction.isButton()) return;
+
+  const [acao, tipo] = interaction.customId.split("_");
+  const user = interaction.user;
+
+  if (acao === "entrar") {
+    if (!filas[tipo].includes(user.id)) {
+      filas[tipo].push(user.id);
+      log(interaction.guild, `✅ ${user} entrou na fila ${tipo}`);
+    }
+  }
+
+  if (acao === "sair") {
+    filas[tipo] = filas[tipo].filter(id => id !== user.id);
+    log(interaction.guild, `❌ ${user} saiu da fila ${tipo}`);
+  }
+
+  await interaction.update({
+    embeds: [painel(tipo, interaction.guild)],
+    components: [botoes(tipo)]
+  });
+});
+
+// ===== CHAMAR =====
+client.on("messageCreate", async msg => {
+  if (!msg.content.startsWith("!chamar")) return;
+
+  if (!msg.member.permissions.has(PermissionsBitField.Flags.Administrator))
+    return msg.reply("❌ Apenas ADM.");
+
+  const tipo = msg.content.split(" ")[1];
+
+  if (!filas[tipo] || filas[tipo].length === 0)
+    return msg.reply("Fila vazia.");
+
+  const primeiro = filas[tipo].shift();
+
+  const canal = await msg.guild.channels.create({
+    name: `teste-${tipo}`,
+    type: ChannelType.GuildText,
+    permissionOverwrites: [
+      { id: msg.guild.roles.everyone, deny: ["ViewChannel"] },
+      { id: primeiro, allow: ["ViewChannel"] },
+      { id: msg.guild.members.me, allow: ["ViewChannel"] }
+    ]
+  });
+
+  canal.send(`<@${primeiro}> você foi chamado!`);
+  log(msg.guild, `📢 <@${primeiro}> foi chamado (${tipo})`);
+});
+
+client.login(process.env.TOKEN);
