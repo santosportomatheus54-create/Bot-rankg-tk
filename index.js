@@ -10,7 +10,10 @@ const {
 } = require("discord.js");
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages
+  ]
 });
 
 // ===== FILAS =====
@@ -19,26 +22,33 @@ let filas = {
   emulador: []
 };
 
-// ===== EMBED =====
-function painel(tipo, guild) {
+// ===== SALVAR MENSAGEM DO PAINEL =====
+let paineis = {
+  mobile: null,
+  emulador: null
+};
+
+// ===== CRIAR EMBED =====
+function criarPainel(tipo, guild) {
   const lista = filas[tipo]
     .map((id, i) => `\`${i + 1}\` • <@${id}>`)
     .join("\n") || "✨ Ninguém na fila";
 
   return new EmbedBuilder()
-    .setTitle(`🔥 TESTE • ${tipo.toUpperCase()}`)
+    .setTitle(`🔥 TESTE DE GUILDA • ${tipo.toUpperCase()}`)
     .setDescription(lista)
-    .setColor("#7b2cff")
+    .setColor("#6a00ff")
     .setThumbnail(guild.iconURL())
     .addFields({
       name: "👥 Total",
       value: `${filas[tipo].length}`,
       inline: true
-    });
+    })
+    .setFooter({ text: "Clique nos botões para entrar ou sair" });
 }
 
 // ===== BOTÕES =====
-function botoes(tipo) {
+function criarBotoes(tipo) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`entrar_${tipo}`)
@@ -52,14 +62,32 @@ function botoes(tipo) {
   );
 }
 
+// ===== ATUALIZAR PAINEL =====
+async function atualizarPainel(tipo, guild) {
+  if (!paineis[tipo]) return;
+
+  try {
+    const canal = guild.channels.cache.get(paineis[tipo].canalId);
+    const msg = await canal.messages.fetch(paineis[tipo].mensagemId);
+
+    await msg.edit({
+      embeds: [criarPainel(tipo, guild)],
+      components: [criarBotoes(tipo)]
+    });
+
+  } catch (err) {
+    console.log("Erro ao atualizar painel");
+  }
+}
+
 // ===== LOG =====
-async function log(guild, texto) {
+async function enviarLog(guild, texto) {
   const canal = guild.channels.cache.get(process.env.LOG_CHANNEL);
   if (!canal) return;
 
   const embed = new EmbedBuilder()
     .setDescription(texto)
-    .setColor("#ff0055")
+    .setColor("#ff0044")
     .setTimestamp();
 
   canal.send({ embeds: [embed] });
@@ -72,10 +100,16 @@ client.on("interactionCreate", async interaction => {
   if (interaction.commandName === "fila") {
     const tipo = interaction.options.getString("tipo");
 
-    await interaction.reply({
-      embeds: [painel(tipo, interaction.guild)],
-      components: [botoes(tipo)]
+    const resposta = await interaction.reply({
+      embeds: [criarPainel(tipo, interaction.guild)],
+      components: [criarBotoes(tipo)],
+      fetchReply: true
     });
+
+    paineis[tipo] = {
+      mensagemId: resposta.id,
+      canalId: resposta.channel.id
+    };
   }
 });
 
@@ -89,22 +123,20 @@ client.on("interactionCreate", async interaction => {
   if (acao === "entrar") {
     if (!filas[tipo].includes(user.id)) {
       filas[tipo].push(user.id);
-      log(interaction.guild, `✅ ${user} entrou na fila ${tipo}`);
+      enviarLog(interaction.guild, `✅ ${user} entrou na fila **${tipo}**`);
     }
   }
 
   if (acao === "sair") {
     filas[tipo] = filas[tipo].filter(id => id !== user.id);
-    log(interaction.guild, `❌ ${user} saiu da fila ${tipo}`);
+    enviarLog(interaction.guild, `❌ ${user} saiu da fila **${tipo}**`);
   }
 
-  await interaction.update({
-    embeds: [painel(tipo, interaction.guild)],
-    components: [botoes(tipo)]
-  });
+  await interaction.deferUpdate();
+  atualizarPainel(tipo, interaction.guild);
 });
 
-// ===== CHAMAR =====
+// ===== !CHAMAR =====
 client.on("messageCreate", async msg => {
   if (!msg.content.startsWith("!chamar")) return;
 
@@ -129,7 +161,14 @@ client.on("messageCreate", async msg => {
   });
 
   canal.send(`<@${primeiro}> você foi chamado!`);
-  log(msg.guild, `📢 <@${primeiro}> foi chamado (${tipo})`);
+
+  enviarLog(msg.guild, `📢 <@${primeiro}> foi chamado (${tipo})`);
+
+  atualizarPainel(tipo, msg.guild);
+});
+
+client.once("ready", () => {
+  console.log(`🔥 Bot online: ${client.user.tag}`);
 });
 
 client.login(process.env.TOKEN);
